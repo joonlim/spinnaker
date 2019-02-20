@@ -230,7 +230,11 @@ class BaseValidateBomDeployer(object):
     # Dump the hal config so we log it for posterity
     script.append('hal -q --log=info config')
 
-    script.append('sudo hal -q --log=info deploy apply')
+    if self.options.deploy_distributed_platform == 'kubernetes_v2' and self.options.ha_clouddriver_enabled:
+      # Give HA clouddrivers more time by blocking on hal deploy apply until pods are ready
+      script.append('sudo hal -q --log=info deploy apply --wait-for-completion')
+    else:
+      script.append('sudo hal -q --log=info deploy apply')
     self.add_post_deploy_statements(script)
 
     if not self.options.deploy_deploy:
