@@ -14,11 +14,13 @@
 
 """Implements debian support commands for buildtool."""
 
+import logging
 import os
 from threading import Semaphore
 
 from buildtool import (
     BomSourceCodeManager,
+    ExecutionError,
     GradleCommandProcessor,
     GradleCommandFactory,
 
@@ -53,8 +55,29 @@ class BuildDebianCommand(GradleCommandProcessor):
 
   def _do_repository(self, repository):
     """Implements RepositoryCommandProcessor interface."""
+    args = self._do_repository_args(repository, False)
+
+    # TODO(joonlim): cfieber is currently updating the services to use Spring
+    # Boot 2 one by one, which breaks the command below for the service being
+    # updated. Since we cannot ensure when cfieber will be finished, we will
+    # attempt the command that works before cfieber's update and the command
+    # that works after the update.
+    try:
+      with self.__semaphore:
+        self.gradle.check_run(args, self, repository, 'candidate', 'debian-build')
+    except ExecutionError:
+      logging.info('Failed to run "./gradlew candidate" command with'
+                  ' "-I gradle/init-publish.gradle" flag for service {}.'
+                  ' Rerunning with "-PenabledPublishing=true" flag. Please'
+                  ' always run this command with the "-PenabledPublishing=true"'
+                  ' flag once all services have been updated to use Spring Boot 2.'.format(repository.name))
+
+      args = self._do_repository_args(repository, True)
+      with self.__semaphore:
+        self.gradle.check_run(args, self, repository, 'candidate', 'debian-build')
+
+  def _do_repository_args(self, repository, new_publish_flag):
     options = self.options
-    name = repository.name
     args = self.gradle.get_common_args()
     if options.gradle_cache_path:
       args.append('--gradle-user-home=' + options.gradle_cache_path)
@@ -63,14 +86,13 @@ class BuildDebianCommand(GradleCommandProcessor):
         or (name == 'deck' and not 'CHROME_BIN' in os.environ)):
       args.append('-x test')
 
-    if (os.path.isfile(os.path.join(repository.git_dir, "gradle", "init-publish.gradle"))):
+    if new_publish_flag:
+      args.append('-PenabledPublishing=true')
+    elif (os.path.isfile(os.path.join(repository.git_dir, "gradle", "init-publish.gradle"))):
       args.append('-I gradle/init-publish.gradle')
 
     args.extend(self.gradle.get_debian_args('trusty,xenial,bionic'))
-
-    with self.__semaphore:
-      self.gradle.check_run(args, self, repository, 'candidate', 'debian-build')
-
+    return args
 
 def add_bom_parser_args(parser, defaults):
   """Adds parser arguments pertaining to publishing boms."""
