@@ -312,6 +312,7 @@ class GradleRunner(object):
         '--stacktrace',
         '--info',
         '-Prelease.useLastTag=true',
+        '-PenablePublishing=true',
     ]
 
     if options.maven_custom_init_file:
